@@ -1,4 +1,5 @@
 import sys
+from tracemalloc import start
 import aiohttp
 import logging
 from datetime import datetime, timedelta
@@ -117,12 +118,12 @@ class BCHydroApi:
             await self._authenticate()
             raise TryAgain
 
-    async def _refresh_if(self, condition, debug_msg=None, hourly=False):
+    async def _refresh_if(self, condition, debug_msg=None, hourly=False, start_date_time=None, end_date_time=None):
         if condition:
             if debug_msg is not None:
                 _LOGGER.debug(debug_msg)
 
-            await self.refresh(hourly=hourly)
+            await self.refresh(hourly=hourly, start_date_time=start_date_time, end_date_time=end_date_time)
 
     @limits(calls=3, period=FIVE_MINUTES)
     async def _authenticate(self) -> bool:
@@ -193,7 +194,7 @@ class BCHydroApi:
         wait=wait_fixed(1),
         retry=retry_if_exception_type(TryAgain),
     )
-    async def refresh(self, hourly=False) -> BCHydroDailyUsage:
+    async def refresh(self, hourly=False, start_date_time=None, end_date_time=None) -> BCHydroDailyUsage:
         if not self._is_cache_expired():
             _LOGGER.debug("Returning cached usage")
             return self.usage
@@ -213,9 +214,9 @@ class BCHydroApi:
                     "ChartType": "column",
                     "Granularity": hourly and "hourly" or "daily",
                     "Overlays": "none",
-                    "DateRange": "currentBill",
-                    "StartDateTime": self.account.evpBillingStart,
-                    "EndDateTime": self.account.evpBillingEnd,
+                    "DateRange": "custom",
+                    "StartDateTime": start_date_time.isoformat() or self.account.evpBillingStart,
+                    "EndDateTime": end_date_time.isoformat() or self.account.evpBillingEnd,
                     "RateGroup": self.account.evpRateGroup,
                 },
                 headers={"bchydroparam": self._bchydroparam},
@@ -292,8 +293,8 @@ class BCHydroApi:
     def _set_usage(self, usage):
         self.usage = usage
 
-    async def get_usage(self, hourly=False) -> BCHydroDailyUsage:
-        await self._refresh_if(not self.usage, hourly=hourly)
+    async def get_usage(self, hourly=False, start_date_time=None, end_date_time=None) -> BCHydroDailyUsage:
+        await self._refresh_if(not self.usage, hourly=hourly, start_date_time=start_date_time, end_date_time=end_date_time)
         return self.usage
 
     def _set_latest_point(self, usage):
